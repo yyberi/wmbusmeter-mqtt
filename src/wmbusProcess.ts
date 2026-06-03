@@ -60,7 +60,7 @@ export class WmbusProcess {
     const args = buildWmbusArgs(this.config);
     this.lastDataAt = Date.now();
     this.logger.info(
-      { command: this.config.wmbusCommand, args: maskWmbusArgs(args) },
+      { command: this.config.wmbusCommand, args: maskWmbusArgs(args, this.config) },
       "Starting wmbusmeters",
     );
     this.publisher.publishStatus("wmbusmeters_starting");
@@ -180,7 +180,15 @@ export class WmbusProcess {
 }
 
 export function buildWmbusArgs(config: AppConfig): string[] {
-  return [
+  const args = [
+    "--format=json",
+  ];
+
+  if (config.wmbusLogTelegrams) {
+    args.push("--logtelegrams");
+  }
+
+  args.push(
     config.wmbusDevice,
     config.heatMeter.name,
     config.heatMeter.driver,
@@ -190,11 +198,13 @@ export function buildWmbusArgs(config: AppConfig): string[] {
     config.waterMeter.driver,
     config.waterMeter.id,
     config.waterMeter.key,
-  ];
+  );
+
+  return args;
 }
 
-export function maskWmbusArgs(args: string[]): string[] {
-  return args.map((arg, index) => (index === 4 || index === 8 ? "****" : arg));
+export function maskWmbusArgs(args: string[], config: AppConfig): string[] {
+  return args.map((arg) => (arg === config.heatMeter.key || arg === config.waterMeter.key ? "****" : arg));
 }
 
 export function parseWmbusLine(line: string, logger?: AppLogger): WmbusTelegram | undefined {

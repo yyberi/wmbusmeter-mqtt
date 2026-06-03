@@ -14,7 +14,7 @@ Node.js / TypeScript -adapteri, joka ajaa `wmbusmeters`-ohjelmaa Docker-kontissa
 Testaa ensin, että `wmbusmeters` toimii hostissa. Älä kirjoita oikeita avaimia komentoon selväkielisinä shell-historiaan.
 
 ```bash
-wmbusmeters /dev/ttyACM0:iu891a:c1,t1 kaukolampo kamheat 85231646 "$HEAT_METER_KEY" vesi kamwater 76822855 "$WATER_METER_KEY"
+wmbusmeters --format=json /dev/ttyACM0:iu891a:c1,t1 kaukolampo kamheat 85231646 "$HEAT_METER_KEY" vesi kamwater 76822855 "$WATER_METER_KEY"
 ```
 
 ## Konfigurointi
@@ -184,6 +184,7 @@ MQTT-yhteys ei muodostu: tarkista `MQTT_BROKER_URL`, `MQTT_PORT`, tunnukset, pal
 `wmbusmeters` ei käynnisty: tarkista Docker buildin onnistuminen, imageen asennettu `/usr/local/bin/wmbusmeters`, `WMBUS_DEVICE` sekä USB-laitepolku kontin sisällä.
 
 Mittarilta ei tule JSONia: tarkista vastaanottimen sijainti, signaalitaso, mittarin lähetysväli ja `wmbusmeters`-komennon toimivuus hostissa.
+Sovellus käynnistää `wmbusmeters`in `--format=json`-optiolla; ilman sitä stdout ei välttämättä ole JSON-rivejä.
 
 Väärä mittari-ID: varmista `HEAT_METER_ID` ja `WATER_METER_ID` host-testillä saatuja arvoja vasten.
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 import { resolveTelegramTopic } from "../src/mqttClient.js";
-import { parseWmbusLine } from "../src/wmbusProcess.js";
+import { buildWmbusArgs, maskWmbusArgs, parseWmbusLine } from "../src/wmbusProcess.js";
 import type { WmbusTelegram } from "../src/types.js";
 import { baseEnv } from "./config.test.js";
 
@@ -57,5 +57,36 @@ describe("parseWmbusLine", () => {
       id: "85231646",
       value: 1,
     });
+  });
+});
+
+describe("buildWmbusArgs", () => {
+  const config = loadConfig({
+    ...baseEnv(),
+    SIMULATE: "false",
+    HEAT_METER_KEY: "00112233445566778899AABBCCDDEEFF",
+    WATER_METER_KEY: "FFEEDDCCBBAA99887766554433221100",
+  });
+
+  it("requests JSON output before the device argument", () => {
+    expect(buildWmbusArgs(config).slice(0, 2)).toEqual([
+      "--format=json",
+      "/dev/ttyACM0:iu891a:c1,t1",
+    ]);
+  });
+
+  it("masks meter keys regardless of argument positions", () => {
+    expect(maskWmbusArgs(buildWmbusArgs(config), config)).toEqual([
+      "--format=json",
+      "/dev/ttyACM0:iu891a:c1,t1",
+      "kaukolampo",
+      "kamheat",
+      "85231646",
+      "****",
+      "vesi",
+      "kamwater",
+      "76822855",
+      "****",
+    ]);
   });
 });
