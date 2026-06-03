@@ -1,0 +1,15 @@
+services:
+  wmbus-reader:
+    build:
+      context: "."
+      dockerfile: Dockerfile
+    image: "wmbus-reader:latest"
+    container_name: wmbus-reader
+    stop_signal: SIGTERM
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs:rw
+    devices:
+      - "${SERIAL_DEVICE:-/dev/ttyACM0}:${CONTAINER_SERIAL_DEVICE:-/dev/ttyACM0}:rw"
+    restart: unless-stopped

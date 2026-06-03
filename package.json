@@ -1,0 +1,25 @@
+{
+  "name": "wmbus-reader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "deploy": "tsx scripts/deploy.ts",
+    "test": "vitest",
+    "lint": "tsc --noEmit && tsc -p tsconfig.scripts.json"
+  },
+  "dependencies": {
+    "dotenv": "latest",
+    "mqtt": "latest",
+    "pino": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
