@@ -286,6 +286,12 @@ WMBUS_DEVICE=/dev/wmbus-imst:iu891a:c1,t1
 
 DEK/AES meter keys, MQTT credentials, and KEM passwords are secrets. Do not commit `.env`, `keys/`, decrypted XML files, or real keys. Do not bake secrets into the Docker image, README, or compose file, and do not log them. The application masks meter keys in logged `wmbusmeters` arguments as `****`.
 
+## License
+
+This adapter project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+The Docker image builds and includes the separate `wmbusmeters` executable, which is licensed under GPL-3.0. This project's MIT license does not relicense `wmbusmeters`; if you distribute Docker images or other bundles containing that binary, comply with the `wmbusmeters` license and provide the required notices and corresponding source information for that component.
+
 ## Troubleshooting
 
 Container cannot see `/dev/ttyACM0`: check `SERIAL_DEVICE`, `CONTAINER_SERIAL_DEVICE`, `docker compose config`, host device permissions, and whether another process is using the receiver.
