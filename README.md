@@ -1,82 +1,147 @@
 # wmbusmeter-mqtt
 
-Node.js / TypeScript -adapteri, joka ajaa `wmbusmeters`-ohjelmaa Docker-kontissa, lukee sen tuottamat JSON-mittarilukemat stdoutista ja julkaisee ne MQTT-brokerille. `wmbusmeters` hoitaa wM-Bus-radion, ajurit, salauksen purun ja mittariarvojen tulkinnan. Tämä sovellus hoitaa prosessinhallinnan, JSON-rivien käsittelyn, MQTT-topic-reitityksen ja simulaatiotilan.
+Node.js / TypeScript adapter that runs `wmbusmeters`, reads JSON meter telegrams from stdout, and publishes them to MQTT. `wmbusmeters` handles the Wireless M-Bus receiver, meter drivers, decryption, and value parsing. This service handles process supervision, JSON line parsing, MQTT topic routing, Home Assistant discovery, and simulation mode.
 
-## Tuettu laitteisto
+## Supported Hardware
 
-- Raspberry Pi, myös ARM64-ympäristö
-- IMST iU891A-XL 868 MHz USB Wireless M-Bus -vastaanotin
+- Raspberry Pi, including ARM64 environments
+- IMST iU891A-XL 868 MHz USB Wireless M-Bus receiver
 - Kamstrup MC603 / `kamheat`
-- Kamstrup vesimittari / `kamwater`
+- Kamstrup water meter / `kamwater`
 
-## Host-testi
+## Prerequisites
 
-Testaa ensin, että `wmbusmeters` toimii hostissa. Älä kirjoita oikeita avaimia komentoon selväkielisinä shell-historiaan.
+- Node.js and npm for local development and helper scripts
+- Docker and Docker Compose for containerized runtime
+- `wmbusmeters` available in the runtime image or on the host when testing manually
+- MQTT broker, unless `MQTT_IN_USE=false`
+- USB access to the Wireless M-Bus receiver for real meter reads
+
+## Host Test
+
+Before running the service, verify that `wmbusmeters` can read the meters on the host. Avoid writing real keys directly into commands that are stored in shell history.
 
 ```bash
 wmbusmeters --format=json /dev/ttyACM0:iu891a:c1,t1 kaukolampo kamheat 85231646 "$HEAT_METER_KEY" vesi kamwater 76822855 "$WATER_METER_KEY"
 ```
 
-## Konfigurointi
+## Configuration
+
+Create a local environment file:
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Tärkeimmät asetukset oikealla laitteella:
+Important settings for a real device:
 
 ```env
 SIMULATE=false
 SERIAL_DEVICE=/dev/ttyACM0
 CONTAINER_SERIAL_DEVICE=/dev/ttyACM0
+WMBUS_COMMAND=wmbusmeters
 WMBUS_DEVICE=/dev/ttyACM0:iu891a:c1,t1
-HEAT_METER_KEY=<oikea_lampomittarin_dek>
-WATER_METER_KEY=<oikea_vesimittarin_dek>
+
+HEAT_METER_NAME=kaukolampo
+HEAT_METER_DRIVER=kamheat
+HEAT_METER_ID=85231646
+HEAT_METER_KEY=<real_heat_meter_dek>
+
+WATER_METER_NAME=vesi
+WATER_METER_DRIVER=kamwater
+WATER_METER_ID=76822855
+WATER_METER_KEY=<real_water_meter_dek>
+
+MQTT_IN_USE=true
+MQTT_BROKER_URL=mqtt://broker-url
+MQTT_PORT=1883
 ```
 
-Kehitystilassa `SIMULATE=true` ei käynnistä `wmbusmeters`-prosessia eikä vaadi USB-laitetta.
+In development, `SIMULATE=true` skips the `wmbusmeters` process and does not require a USB receiver. The simulator publishes heat and water meter payloads through the same routing path as the real runtime.
 
-## Kehitys
+Useful runtime settings:
+
+- `SIMULATION_INTERVAL_MS`: interval for simulator payloads.
+- `WATCHDOG_TIMEOUT_MS`: restarts `wmbusmeters` if no valid telegrams are received within the timeout. Set to `0` to disable.
+- `RESTART_DELAY_MS`: delay before restarting a crashed `wmbusmeters` process.
+- `WMBUS_LOG_TELEGRAMS`: adds `--logtelegrams` to the `wmbusmeters` command.
+- `LOG_DIR` and `LOG_LEVEL`: local log output location and verbosity.
+
+## Kamstrup KEM Decryption
+
+Kamstrup `.kem` files can contain meter metadata and encryption keys such as `DEK`. This project includes a helper script for decrypting those files:
+
+```bash
+npm run kem:decrypt -- ./keys/heatmeter.kem 123456
+```
+
+The second argument is the KEM password. To avoid storing it in shell history, prefer using an environment variable:
+
+```bash
+KEM_PASSWORD=123456 npm run kem:decrypt -- ./keys/heatmeter.kem
+```
+
+Useful options:
+
+```bash
+npm run kem:decrypt -- ./keys/heatmeter.kem 123456 --redact
+npm run kem:decrypt -- ./keys/heatmeter.kem 123456 --json
+npm run kem:decrypt -- ./keys/heatmeter.kem 123456 --write-xml ./keys/heatmeter.xml
+```
+
+The script extracts meter fields such as meter number, serial number, consumption type, vendor ID, and encryption keys (`PK1`, `PK2`, `PK3`, `DEK`, `GPK1`, `GPK2`, `GPK3`, `GPK4`) when they are present. Use the meter-specific `DEK` value as `HEAT_METER_KEY` or `WATER_METER_KEY`. The `keys/` directory is ignored by git.
+
+## Development
+
+Install dependencies and start the TypeScript entrypoint:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Simulaatiotila julkaisee määräajoin kaukolämpö- ja vesimittarin payloadit samaa MQTT-reititystä käyttäen kuin oikea ajotila.
+Other local commands:
+
+```bash
+npm run build
+npm test
+npm run lint
+```
+
+`npm run lint` runs TypeScript checks for both application code and scripts.
 
 ## Docker
 
-Build:
+Build the image:
 
 ```bash
 docker compose build
 ```
 
-Käynnistys:
+Start the service:
 
 ```bash
 docker compose up -d
 ```
 
-Lokit:
+Follow logs:
 
 ```bash
 docker logs -f wmbus-reader
 ```
 
-Pysäytys:
+Stop the service:
 
 ```bash
 docker compose down
 ```
 
-Kontti vastaanottaa `SIGTERM`-signaalin, pysäyttää lapsiprosessin ja julkaisee offline-statuksen MQTT:hen, jos yhteys on käytettävissä.
+The container receives `SIGTERM`, stops the child process, and publishes an offline status to MQTT when the connection is available.
 
-## Deploy Raspberry Pi:lle
+## Raspberry Pi Deployment
 
-Deploy käyttää `.env`-tiedoston asetuksia:
+Deployment reads its settings from `.env`:
 
 ```env
 DEPLOY_SERVER=user@target-server-ip
@@ -84,16 +149,15 @@ DEPLOY_TARGET_DIR=~/services/wmbusmeter-mqtt
 DEPLOY_RUN_TESTS=true
 ```
 
-Kohdekoneella pitää olla Docker ja Docker Compose käytettävissä samalla käyttäjällä, jolla SSH-yhteys avataan. Paikallisella koneella tarvitaan `ssh` ja `rsync`.
-`DEPLOY_TARGET_DIR` voi alkaa muodolla `~/`, jolloin se tarkoittaa kohdekäyttäjän kotihakemistoa.
+The target host must have Docker and Docker Compose available to the SSH user. The local machine must have `ssh` and `rsync`. `DEPLOY_TARGET_DIR` may start with `~/`, which resolves to the target user's home directory.
 
-Deploy:
+Run deployment:
 
 ```bash
 npm run deploy
 ```
 
-Skripti tekee paikallisesti TypeScript-buildin ja oletuksena testit. Sen jälkeen se luo kohdehakemiston, synkronoi projektin `rsync`:llä ja ajaa kohdekoneella:
+The deploy script runs a local TypeScript build and, by default, tests. It then creates the target directory, syncs the project with `rsync`, and runs these commands on the target host:
 
 ```bash
 docker compose build
@@ -101,11 +165,11 @@ docker compose up -d
 docker image prune -f
 ```
 
-Deploy kopioi myös paikallisen `.env`-tiedoston kohdekoneelle, koska `docker-compose.yml` lukee salaiset mittari- ja MQTT-asetukset siitä. `.env` on gitin ulkopuolella eikä sitä pidä committaa. Synkronoinnista jätetään pois `.git`, `node_modules`, `dist`, `logs` ja lokitiedostot.
+Deployment also copies the local `.env` file because `docker-compose.yml` reads meter and MQTT secrets from it. `.env` is ignored by git and must not be committed. Sync excludes `.git`, `node_modules`, `dist`, `logs`, and log files.
 
 ## MQTT
 
-Topic-rakenne:
+Default topic layout:
 
 ```text
 wmbus/kaukolampo/state
@@ -115,19 +179,21 @@ wmbus/status
 wmbus/event
 ```
 
-MQTT-testit:
+MQTT smoke test:
 
 ```bash
 mosquitto_sub -h <broker-host> -t 'wmbus/#' -v
 ```
 
-Kaukolämpö julkaistaan `MQTT_HEAT_TOPIC`-topiciin, jos payloadin `name`, `id` tai `meter` vastaa lämpömittarin asetuksia. Vesimittari julkaistaan vastaavasti `MQTT_WATER_TOPIC`-topiciin. Tuntemattomat validit JSON-payloadit julkaistaan `MQTT_RAW_TOPIC`-topiciin. Jos `MQTT_PUBLISH_RAW=true`, kaikki validit payloadit julkaistaan lisäksi raw-topiciin.
+Heat meter payloads are published to `MQTT_HEAT_TOPIC` when the payload `name`, `id`, or `meter` matches the heat meter settings. Water meter payloads are published to `MQTT_WATER_TOPIC` the same way. Unknown but valid JSON payloads are published to `MQTT_RAW_TOPIC`. If `MQTT_PUBLISH_RAW=true`, all valid payloads are also published to the raw topic.
 
-`MQTT_STATUS_TOPIC` on palvelun availability-topic ja sisältää vain `online`/`offline`-tilan Home Assistantia varten. `wmbusmeters`-prosessitapahtumat, kuten käynnistys, kaatuminen ja watchdog-timeout, julkaistaan `MQTT_EVENT_TOPIC`-topiciin.
+`MQTT_STATUS_TOPIC` is the service availability topic and contains `online` or `offline` for Home Assistant. `wmbusmeters` process events, such as start, crash, restart, and watchdog timeout, are published to `MQTT_EVENT_TOPIC`.
+
+Set `MQTT_IN_USE=false` to run without publishing to MQTT.
 
 ## Home Assistant MQTT Discovery
 
-Home Assistant -autodiscovery on oletuksena pois päältä. Ota se käyttöön `.env`-tiedostossa:
+Home Assistant discovery is disabled by default. Enable it in `.env`:
 
 ```env
 HA_DISCOVERY_ENABLED=true
@@ -136,40 +202,40 @@ HA_DISCOVERY_RETAIN=true
 HA_DEVICE_MANUFACTURER=Kamstrup
 ```
 
-Kun MQTT-yhteys muodostuu, sovellus julkaisee retained discovery -konfiguraatiot Home Assistantin MQTT discovery -topiceihin, esimerkiksi:
+When the MQTT connection is established, the service publishes retained discovery configurations to Home Assistant MQTT discovery topics, for example:
 
 ```text
 homeassistant/sensor/wmbus_85231646_kaukolampo/total_energy_consumption_kwh/config
 homeassistant/sensor/wmbus_76822855_vesi/total_m3/config
 ```
 
-Discovery-topic käyttää Home Assistantin `node_id`-osaa mittarikohtaiseen ryhmittelyyn:
+Discovery topics use the Home Assistant `node_id` segment for meter-specific grouping:
 
 ```text
 homeassistant/sensor/<node_id>/<object_id>/config
 ```
 
-Esimerkiksi `node_id` on lämpömittarille `wmbus_85231646_kaukolampo` ja vesimittarille `wmbus_76822855_vesi`.
+For example, the heat meter `node_id` is `wmbus_85231646_kaukolampo`, and the water meter `node_id` is `wmbus_76822855_vesi`.
 
-Sensorit lukevat arvonsa samoista state-topiceista, joihin mittaripayloadit julkaistaan:
+Sensors read values from the same state topics where meter payloads are published:
 
 ```text
 wmbus/kaukolampo/state
 wmbus/vesi/state
 ```
 
-Saatavuus luetaan status-topicista `wmbus/status` kentän `status` perusteella. Kun sovellus julkaisee `online`, sensorit ovat käytettävissä. Kun se julkaisee `offline`, ne muuttuvat Home Assistantissa unavailable-tilaan. Home Assistant Discoveryn ollessa käytössä status julkaistaan retained-viestinä, jotta sensorit eivät jää unavailable-tilaan Home Assistantin tai MQTT-integraation uudelleenkäynnistyksen jälkeen.
+Availability is read from `wmbus/status`. When the service publishes `online`, sensors are available. When it publishes `offline`, sensors become unavailable in Home Assistant. With discovery enabled, status is published as a retained message so sensors do not remain unavailable after a Home Assistant or MQTT integration restart.
 
-Julkaistavat Home Assistant -sensorit:
+Published Home Assistant sensors:
 
-- Kaukolämpö: kokonaisenergia, kokonaisvolyymi, tilavuusvirta, meno- ja paluulämpötila, RSSI.
-- Vesi: kokonaiskulutus, virtauslämpötila, minimilämpötila, RSSI.
+- Heat: total energy, total volume, volume flow, flow and return temperatures, RSSI.
+- Water: total consumption, flow temperature, minimum flow temperature, RSSI.
 
-Sovellus siivoaa aiemmat litteät discovery-topicinsa julkaisemalla niihin tyhjän retained-viestin, esimerkiksi `homeassistant/sensor/wmbus_85231646_total_energy_consumption_kwh/config`.
+The service clears its previous flat discovery topics by publishing empty retained messages to topics such as `homeassistant/sensor/wmbus_85231646_total_energy_consumption_kwh/config`.
 
-## USB-laite
+## USB Device
 
-Tarkista hostissa:
+Check the receiver on the host:
 
 ```bash
 lsusb
@@ -177,30 +243,30 @@ ls -l /dev/ttyACM0
 dmesg | tail -50
 ```
 
-Docker Compose välittää laitteen konttiin:
+Docker Compose passes the device into the container:
 
 ```yaml
 devices:
   - "${SERIAL_DEVICE:-/dev/ttyACM0}:${CONTAINER_SERIAL_DEVICE:-/dev/ttyACM0}:rw"
 ```
 
-`SERIAL_DEVICE` on hostin laitepolku. `CONTAINER_SERIAL_DEVICE` ja `WMBUS_DEVICE` käyttävät kontin sisäistä laitepolkua.
+`SERIAL_DEVICE` is the host path. `CONTAINER_SERIAL_DEVICE` and `WMBUS_DEVICE` use the path inside the container.
 
-## Pysyvä udev-symlink
+## Persistent udev Symlink
 
-Jos `/dev/ttyACM0` vaihtuu bootissa, käytä pysyvää symlinkkiä, esimerkiksi `/dev/wmbus-imst`. Selvitä laitteen tunnisteet:
+If `/dev/ttyACM0` changes after reboot, create a persistent symlink such as `/dev/wmbus-imst`. Find device identifiers:
 
 ```bash
 udevadm info -a -n /dev/ttyACM0
 ```
 
-Lisää sääntö esimerkiksi tiedostoon `/etc/udev/rules.d/99-wmbus-imst.rules` sovittamalla `idVendor`, `idProduct` ja tarvittaessa sarjanumero oman laitteen arvoihin:
+Add a rule such as `/etc/udev/rules.d/99-wmbus-imst.rules`, matching `idVendor`, `idProduct`, and optionally the serial number to your own receiver:
 
 ```text
 SUBSYSTEM=="tty", ATTRS{idVendor}=="xxxx", ATTRS{idProduct}=="yyyy", SYMLINK+="wmbus-imst", GROUP="dialout", MODE="0660"
 ```
 
-Lataa säännöt:
+Reload rules:
 
 ```bash
 sudo udevadm control --reload-rules
@@ -208,7 +274,7 @@ sudo udevadm trigger
 ls -l /dev/wmbus-imst
 ```
 
-Tällöin `.env` voi olla:
+Then `.env` can use:
 
 ```env
 SERIAL_DEVICE=/dev/wmbus-imst
@@ -216,30 +282,29 @@ CONTAINER_SERIAL_DEVICE=/dev/wmbus-imst
 WMBUS_DEVICE=/dev/wmbus-imst:iu891a:c1,t1
 ```
 
-## Tietoturva
+## Security
 
-DEK/AES-avaimet ovat salaisia. Älä committaa `.env`-tiedostoa, älä rakenna avaimia Docker-imageen, älä kirjoita niitä README:hen tai composeen, äläkä logita niitä. Sovellus maskaa `wmbusmeters`-argumenteissa mittariavaimet muodossa `****`.
+DEK/AES meter keys, MQTT credentials, and KEM passwords are secrets. Do not commit `.env`, `keys/`, decrypted XML files, or real keys. Do not bake secrets into the Docker image, README, or compose file, and do not log them. The application masks meter keys in logged `wmbusmeters` arguments as `****`.
 
-## Vianhaku
+## Troubleshooting
 
-Kontti ei näe `/dev/ttyACM0`: tarkista `SERIAL_DEVICE`, `CONTAINER_SERIAL_DEVICE`, `docker compose config`, hostin laiteoikeudet ja että laite ei ole toisen prosessin varaama.
+Container cannot see `/dev/ttyACM0`: check `SERIAL_DEVICE`, `CONTAINER_SERIAL_DEVICE`, `docker compose config`, host device permissions, and whether another process is using the receiver.
 
-MQTT-yhteys ei muodostu: tarkista `MQTT_BROKER_URL`, `MQTT_PORT`, tunnukset, palomuuri ja että broker hyväksyy client id:n `MQTT_CLIENT_ID`.
+MQTT connection fails: check `MQTT_IN_USE`, `MQTT_BROKER_URL`, `MQTT_PORT`, credentials, firewall rules, and whether the broker accepts `MQTT_CLIENT_ID`.
 
-`wmbusmeters` ei käynnisty: tarkista Docker buildin onnistuminen, imageen asennettu `/usr/local/bin/wmbusmeters`, `WMBUS_DEVICE` sekä USB-laitepolku kontin sisällä.
+`wmbusmeters` does not start: check that the Docker build succeeded, `/usr/local/bin/wmbusmeters` exists in the image, `WMBUS_COMMAND` is correct, `WMBUS_DEVICE` is correct, and the USB path exists inside the container.
 
-Mittarilta ei tule JSONia: tarkista vastaanottimen sijainti, signaalitaso, mittarin lähetysväli ja `wmbusmeters`-komennon toimivuus hostissa.
-Sovellus käynnistää `wmbusmeters`in `--format=json`-optiolla; ilman sitä stdout ei välttämättä ole JSON-rivejä.
+No JSON arrives from the meter: check receiver placement, signal level, meter transmission interval, and the manual `wmbusmeters` host command. The application starts `wmbusmeters` with `--format=json`; without it, stdout may not contain JSON lines.
 
-Väärä mittari-ID: varmista `HEAT_METER_ID` ja `WATER_METER_ID` host-testillä saatuja arvoja vasten.
+Wrong meter ID: verify `HEAT_METER_ID` and `WATER_METER_ID` against the values found during host testing or from the decrypted KEM file.
 
-Väärä avain: salattu mittari voi näkyä ilman tulkittuja arvoja tai virheellisenä purkuna. Tarkista DEK/AES-avain mittarikohtaisesti.
+Wrong key: encrypted meters may appear without parsed values or with failed decryption. Verify the meter-specific `DEK` or AES key.
 
-Signaalitaso heikko: seuraa `rssi_dbm`-arvoa, siirrä USB-vastaanotinta jatkokaapelilla ja vältä Raspberry Pi:n tai metallikotelon välitöntä läheisyyttä.
+Weak signal: monitor `rssi_dbm`, move the USB receiver with an extension cable, and avoid placing it directly next to a Raspberry Pi or metal enclosure.
 
-## Esimerkkipayloadit
+## Example Payloads
 
-Kaukolämpö:
+Heat:
 
 ```json
 {
@@ -266,7 +331,7 @@ Kaukolämpö:
 }
 ```
 
-Vesi:
+Water:
 
 ```json
 {
