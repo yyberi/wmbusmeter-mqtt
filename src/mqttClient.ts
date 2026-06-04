@@ -1,11 +1,13 @@
 import mqtt, { type IClientOptions, type MqttClient } from "mqtt";
 import type { AppConfig, MqttConfig } from "./config.js";
+import { buildHomeAssistantDiscoveryMessages } from "./homeAssistantDiscovery.js";
 import type { AppLogger } from "./logger.js";
 import type { WmbusTelegram } from "./types.js";
 
 export interface TelegramPublisher {
   publishTelegram(payload: WmbusTelegram): void;
   publishStatus(status: string, extra?: Record<string, unknown>): void;
+  publishEvent(event: string, extra?: Record<string, unknown>): void;
   close(): Promise<void>;
 }
 
@@ -59,7 +61,7 @@ class MqttPublisher implements TelegramPublisher {
           service: "wmbus-reader",
         }),
         qos: mqttConfig.qos,
-        retain: mqttConfig.retain,
+        retain: this.shouldRetainStatus(),
       },
     };
 
@@ -67,6 +69,7 @@ class MqttPublisher implements TelegramPublisher {
     this.client.on("connect", () => {
       this.logger.info({ brokerUrl: mqttConfig.brokerUrl, clientId: mqttConfig.clientId }, "MQTT connected");
       this.publishStatus("online");
+      this.publishHomeAssistantDiscovery();
     });
     this.client.on("reconnect", () => this.logger.info("MQTT reconnecting"));
     this.client.on("close", () => this.logger.info("MQTT connection closed"));
@@ -93,7 +96,26 @@ class MqttPublisher implements TelegramPublisher {
         timestamp: new Date().toISOString(),
         ...extra,
       }),
-      this.config.mqtt,
+      {
+        qos: this.config.mqtt.qos,
+        retain: this.shouldRetainStatus(),
+      },
+    );
+  }
+
+  publishEvent(event: string, extra: Record<string, unknown> = {}): void {
+    this.publish(
+      this.config.mqtt.eventTopic,
+      JSON.stringify({
+        event,
+        service: "wmbus-reader",
+        timestamp: new Date().toISOString(),
+        ...extra,
+      }),
+      {
+        qos: this.config.mqtt.qos,
+        retain: false,
+      },
     );
   }
 
@@ -104,7 +126,7 @@ class MqttPublisher implements TelegramPublisher {
     });
   }
 
-  private publish(topic: string, payload: string, mqttConfig: MqttConfig): void {
+  private publish(topic: string, payload: string, mqttConfig: Pick<MqttConfig, "qos" | "retain">): void {
     this.client.publish(
       topic,
       payload,
@@ -121,6 +143,53 @@ class MqttPublisher implements TelegramPublisher {
       },
     );
   }
+
+  private shouldRetainStatus(): boolean {
+    return this.config.homeAssistant.discoveryEnabled || this.config.mqtt.retain;
+  }
+
+  private publishHomeAssistantDiscovery(): void {
+    if (!this.config.homeAssistant.discoveryEnabled) {
+      return;
+    }
+
+    const messages = buildHomeAssistantDiscoveryMessages(this.config);
+    for (const message of messages) {
+      if (message.legacyTopic && message.legacyTopic !== message.topic) {
+        this.client.publish(
+          message.legacyTopic,
+          "",
+          {
+            qos: this.config.mqtt.qos,
+            retain: true,
+          },
+          (error) => {
+            if (error) {
+              this.logger.error({ error, topic: message.legacyTopic }, "Legacy Home Assistant MQTT discovery cleanup failed");
+              return;
+            }
+            this.logger.debug({ topic: message.legacyTopic }, "Legacy Home Assistant MQTT discovery config cleared");
+          },
+        );
+      }
+
+      this.client.publish(
+        message.topic,
+        JSON.stringify(message.payload),
+        {
+          qos: this.config.mqtt.qos,
+          retain: this.config.homeAssistant.discoveryRetain,
+        },
+        (error) => {
+          if (error) {
+            this.logger.error({ error, topic: message.topic }, "Home Assistant MQTT discovery publish failed");
+            return;
+          }
+          this.logger.info({ topic: message.topic }, "Home Assistant MQTT discovery published");
+        },
+      );
+    }
+  }
 }
 
 class NoopPublisher implements TelegramPublisher {
@@ -132,6 +201,10 @@ class NoopPublisher implements TelegramPublisher {
 
   publishStatus(status: string, extra: Record<string, unknown> = {}): void {
     this.logger.info({ status, ...extra }, "MQTT disabled, status not published");
+  }
+
+  publishEvent(event: string, extra: Record<string, unknown> = {}): void {
+    this.logger.info({ event, ...extra }, "MQTT disabled, event not published");
   }
 
   async close(): Promise<void> {

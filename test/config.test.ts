@@ -9,6 +9,7 @@ describe("loadConfig", () => {
     expect(config.mqtt.qos).toBe(0);
     expect(config.watchdogTimeoutMs).toBe(900000);
     expect(config.heatMeter.id).toBe("85231646");
+    expect(config.homeAssistant.discoveryEnabled).toBe(false);
   });
 
   it("rejects placeholder keys when SIMULATE=false", () => {
@@ -39,6 +40,23 @@ describe("loadConfig", () => {
       }),
     ).toThrow(/MQTT_PORT/);
   });
+
+  it("loads Home Assistant discovery settings from env", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      HA_DISCOVERY_ENABLED: "true",
+      HA_DISCOVERY_PREFIX: "ha",
+      HA_DISCOVERY_RETAIN: "false",
+      HA_DEVICE_MANUFACTURER: "Kamstrup Custom",
+    });
+
+    expect(config.homeAssistant).toEqual({
+      discoveryEnabled: true,
+      discoveryPrefix: "ha",
+      discoveryRetain: false,
+      deviceManufacturer: "Kamstrup Custom",
+    });
+  });
 });
 
 export function baseEnv(): Record<string, string> {
@@ -65,8 +83,13 @@ export function baseEnv(): Record<string, string> {
     MQTT_WATER_TOPIC: "wmbus/vesi/state",
     MQTT_RAW_TOPIC: "wmbus/raw",
     MQTT_STATUS_TOPIC: "wmbus/status",
+    MQTT_EVENT_TOPIC: "wmbus/event",
     MQTT_PUBLISH_RAW: "false",
     MQTT_RETAIN: "false",
     MQTT_QOS: "0",
+    HA_DISCOVERY_ENABLED: "false",
+    HA_DISCOVERY_PREFIX: "homeassistant",
+    HA_DISCOVERY_RETAIN: "true",
+    HA_DEVICE_MANUFACTURER: "Kamstrup",
   };
 }

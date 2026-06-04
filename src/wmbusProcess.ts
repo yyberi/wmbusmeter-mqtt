@@ -63,7 +63,7 @@ export class WmbusProcess {
       { command: this.config.wmbusCommand, args: maskWmbusArgs(args, this.config) },
       "Starting wmbusmeters",
     );
-    this.publisher.publishStatus("wmbusmeters_starting");
+    this.publisher.publishEvent("wmbusmeters_starting");
 
     const child = spawn(this.config.wmbusCommand, args, {
       shell: false,
@@ -88,7 +88,7 @@ export class WmbusProcess {
 
     child.on("error", (error) => {
       this.logger.error({ error }, "wmbusmeters process error");
-      this.publisher.publishStatus("wmbusmeters_error", { error: error.message });
+      this.publisher.publishEvent("wmbusmeters_error", { error: error.message });
     });
 
     child.on("close", (code, signal) => {
@@ -104,12 +104,12 @@ export class WmbusProcess {
       this.child = undefined;
       if (this.intentionalStop) {
         this.logger.info({ code, signal }, "wmbusmeters stopped");
-        this.publisher.publishStatus("wmbusmeters_stopped", { code, signal });
+        this.publisher.publishEvent("wmbusmeters_stopped", { code, signal });
         return;
       }
 
       this.logger.warn({ code, signal }, "wmbusmeters exited unexpectedly");
-      this.publisher.publishStatus("wmbusmeters_crashed", { code, signal });
+      this.publisher.publishEvent("wmbusmeters_crashed", { code, signal });
       this.scheduleRestart();
     });
   }
@@ -132,7 +132,7 @@ export class WmbusProcess {
 
   private scheduleRestart(): void {
     this.clearRestartTimer();
-    this.publisher.publishStatus("wmbusmeters_restarting", { delayMs: this.config.restartDelayMs });
+    this.publisher.publishEvent("wmbusmeters_restarting", { delayMs: this.config.restartDelayMs });
     this.restartTimer = setTimeout(() => {
       this.restartTimer = undefined;
       if (!this.intentionalStop) {
@@ -156,7 +156,7 @@ export class WmbusProcess {
       }
 
       this.logger.warn({ ageMs, timeoutMs: this.config.watchdogTimeoutMs }, "No wmbusmeters data received within watchdog timeout");
-      this.publisher.publishStatus("wmbusmeters_watchdog_timeout", { ageMs });
+      this.publisher.publishEvent("wmbusmeters_watchdog_timeout", { ageMs });
       this.lastDataAt = Date.now();
       if (this.child && !this.child.killed) {
         this.child.kill("SIGTERM");

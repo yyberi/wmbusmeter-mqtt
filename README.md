@@ -112,6 +112,7 @@ wmbus/kaukolampo/state
 wmbus/vesi/state
 wmbus/raw
 wmbus/status
+wmbus/event
 ```
 
 MQTT-testit:
@@ -121,6 +122,50 @@ mosquitto_sub -h <broker-host> -t 'wmbus/#' -v
 ```
 
 Kaukolämpö julkaistaan `MQTT_HEAT_TOPIC`-topiciin, jos payloadin `name`, `id` tai `meter` vastaa lämpömittarin asetuksia. Vesimittari julkaistaan vastaavasti `MQTT_WATER_TOPIC`-topiciin. Tuntemattomat validit JSON-payloadit julkaistaan `MQTT_RAW_TOPIC`-topiciin. Jos `MQTT_PUBLISH_RAW=true`, kaikki validit payloadit julkaistaan lisäksi raw-topiciin.
+
+`MQTT_STATUS_TOPIC` on palvelun availability-topic ja sisältää vain `online`/`offline`-tilan Home Assistantia varten. `wmbusmeters`-prosessitapahtumat, kuten käynnistys, kaatuminen ja watchdog-timeout, julkaistaan `MQTT_EVENT_TOPIC`-topiciin.
+
+## Home Assistant MQTT Discovery
+
+Home Assistant -autodiscovery on oletuksena pois päältä. Ota se käyttöön `.env`-tiedostossa:
+
+```env
+HA_DISCOVERY_ENABLED=true
+HA_DISCOVERY_PREFIX=homeassistant
+HA_DISCOVERY_RETAIN=true
+HA_DEVICE_MANUFACTURER=Kamstrup
+```
+
+Kun MQTT-yhteys muodostuu, sovellus julkaisee retained discovery -konfiguraatiot Home Assistantin MQTT discovery -topiceihin, esimerkiksi:
+
+```text
+homeassistant/sensor/wmbus_85231646_kaukolampo/total_energy_consumption_kwh/config
+homeassistant/sensor/wmbus_76822855_vesi/total_m3/config
+```
+
+Discovery-topic käyttää Home Assistantin `node_id`-osaa mittarikohtaiseen ryhmittelyyn:
+
+```text
+homeassistant/sensor/<node_id>/<object_id>/config
+```
+
+Esimerkiksi `node_id` on lämpömittarille `wmbus_85231646_kaukolampo` ja vesimittarille `wmbus_76822855_vesi`.
+
+Sensorit lukevat arvonsa samoista state-topiceista, joihin mittaripayloadit julkaistaan:
+
+```text
+wmbus/kaukolampo/state
+wmbus/vesi/state
+```
+
+Saatavuus luetaan status-topicista `wmbus/status` kentän `status` perusteella. Kun sovellus julkaisee `online`, sensorit ovat käytettävissä. Kun se julkaisee `offline`, ne muuttuvat Home Assistantissa unavailable-tilaan. Home Assistant Discoveryn ollessa käytössä status julkaistaan retained-viestinä, jotta sensorit eivät jää unavailable-tilaan Home Assistantin tai MQTT-integraation uudelleenkäynnistyksen jälkeen.
+
+Julkaistavat Home Assistant -sensorit:
+
+- Kaukolämpö: kokonaisenergia, kokonaisvolyymi, tilavuusvirta, meno- ja paluulämpötila, RSSI.
+- Vesi: kokonaiskulutus, virtauslämpötila, minimilämpötila, RSSI.
+
+Sovellus siivoaa aiemmat litteät discovery-topicinsa julkaisemalla niihin tyhjän retained-viestin, esimerkiksi `homeassistant/sensor/wmbus_85231646_total_energy_consumption_kwh/config`.
 
 ## USB-laite
 

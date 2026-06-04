@@ -17,12 +17,20 @@ export interface MqttConfig {
   waterTopic: string;
   rawTopic: string;
   statusTopic: string;
+  eventTopic: string;
   publishRaw: boolean;
   retain: boolean;
   qos: MqttQos;
 }
 
 export type MqttQos = 0 | 1 | 2;
+
+export interface HomeAssistantConfig {
+  discoveryEnabled: boolean;
+  discoveryPrefix: string;
+  discoveryRetain: boolean;
+  deviceManufacturer: string;
+}
 
 export interface AppConfig {
   nodeEnv: string;
@@ -38,6 +46,7 @@ export interface AppConfig {
   heatMeter: MeterConfig;
   waterMeter: MeterConfig;
   mqtt: MqttConfig;
+  homeAssistant: HomeAssistantConfig;
 }
 
 type Env = Record<string, string | undefined>;
@@ -56,9 +65,14 @@ const defaults = {
   MQTT_WATER_TOPIC: "wmbus/vesi/state",
   MQTT_RAW_TOPIC: "wmbus/raw",
   MQTT_STATUS_TOPIC: "wmbus/status",
+  MQTT_EVENT_TOPIC: "wmbus/event",
   MQTT_PUBLISH_RAW: "false",
   MQTT_RETAIN: "false",
   MQTT_QOS: "0",
+  HA_DISCOVERY_ENABLED: "false",
+  HA_DISCOVERY_PREFIX: "homeassistant",
+  HA_DISCOVERY_RETAIN: "true",
+  HA_DEVICE_MANUFACTURER: "Kamstrup",
 };
 
 export function loadConfig(env: Env = process.env): AppConfig {
@@ -115,9 +129,16 @@ export function loadConfig(env: Env = process.env): AppConfig {
       waterTopic: value(env, "MQTT_WATER_TOPIC", defaults.MQTT_WATER_TOPIC),
       rawTopic: value(env, "MQTT_RAW_TOPIC", defaults.MQTT_RAW_TOPIC),
       statusTopic: value(env, "MQTT_STATUS_TOPIC", defaults.MQTT_STATUS_TOPIC),
+      eventTopic: value(env, "MQTT_EVENT_TOPIC", defaults.MQTT_EVENT_TOPIC),
       publishRaw: parseBoolean(value(env, "MQTT_PUBLISH_RAW", defaults.MQTT_PUBLISH_RAW), "MQTT_PUBLISH_RAW"),
       retain: parseBoolean(value(env, "MQTT_RETAIN", defaults.MQTT_RETAIN), "MQTT_RETAIN"),
       qos: mqttQos,
+    },
+    homeAssistant: {
+      discoveryEnabled: parseBoolean(value(env, "HA_DISCOVERY_ENABLED", defaults.HA_DISCOVERY_ENABLED), "HA_DISCOVERY_ENABLED"),
+      discoveryPrefix: value(env, "HA_DISCOVERY_PREFIX", defaults.HA_DISCOVERY_PREFIX),
+      discoveryRetain: parseBoolean(value(env, "HA_DISCOVERY_RETAIN", defaults.HA_DISCOVERY_RETAIN), "HA_DISCOVERY_RETAIN"),
+      deviceManufacturer: value(env, "HA_DEVICE_MANUFACTURER", defaults.HA_DEVICE_MANUFACTURER),
     },
   };
 }
